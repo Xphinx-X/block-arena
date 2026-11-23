@@ -20,6 +20,14 @@ static func unshaded(color: Color) -> StandardMaterial3D:
 	return m
 
 
+## Unlit and opaque - used for the first-person weapon so it never goes dark.
+static func unshaded_opaque(color: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = color
+	return m
+
+
 static func emissive(color: Color, energy: float = 1.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color

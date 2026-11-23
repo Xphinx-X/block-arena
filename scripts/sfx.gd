@@ -21,6 +21,7 @@ func _ready() -> void:
 	_streams["wave"] = _chord([523.25, 659.25, 783.99], 0.42, 0.24)
 	_streams["start"] = _chord([392.0, 523.25], 0.32, 0.28)
 	_streams["over"] = _sweep(300.0, 55.0, 0.8, 0.36)
+	_streams["slide"] = _noise_burst(0.22, 0.30, 240.0)
 
 
 func play(name: String, pitch: float = 1.0, vol_db: float = 0.0) -> void:

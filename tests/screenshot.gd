@@ -60,6 +60,41 @@ func _ready() -> void:
 		await _wait(1)
 		await _shot("firing")
 
+		# Slide pose. A real slide lasts 0.36s, far shorter than a software
+		# frame, so freeze the body mid-slide for the capture.
+		game.player.set_physics_process(false)
+		game.player.sliding = true
+		game.player._slide_t = 0.18
+		game.player._slide_cd = 0.7
+		game.player._slide_dir = game.cam.forward_flat()
+		game.player.figure.position.y = -0.55
+		game.player.figure.rotation.x = -0.22
+		game.player.figure.set_slide(1.0)
+		await _wait(2)
+		await _shot("slide")
+		game.player.sliding = false
+		game.player._slide_t = 0.0
+		game.player._slide_cd = 0.0
+		game.player.figure.position.y = 0.0
+		game.player.figure.rotation.x = 0.0
+		game.player.figure.set_slide(0.0)
+		game.player.set_physics_process(true)
+
+		# First-person from an open stretch of floor so the shot reads clearly.
+		game.player.global_position = Vector3(0.0, 0.2, -6.0)
+		game.toggle_view()
+		game.cam.reset_view(0.0)
+		game.cam.snap_to(game.player.global_position)
+		bot.global_position = Vector3(0.0, 0.3, -15.0)
+		await _wait(2)
+		var fp_to: Vector3 = bot.global_position + Vector3(0.0, 1.1, 0.0)
+		game.fx.sparks(fp_to, Color(1.0, 0.92, 0.45), 6, 5.0, 0.10)
+		await _wait(1)
+		await _shot("fps")
+
+		game.toggle_view()
+		await _wait(4)
+
 		game.player._fire_cd = 0.0
 		_touch(0, win * Vector2(0.17, 0.66), false)
 		_touch(1, win * Vector2(0.83, 0.75), false)

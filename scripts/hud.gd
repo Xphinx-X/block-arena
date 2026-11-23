@@ -10,8 +10,11 @@ const MUTED := Color(0.70, 0.77, 0.90)
 const STICK_R := 120.0
 
 signal tapped
+signal view_toggled
+signal slide_pressed
 
 var mode := "title"  # title | play | over
+var first_person := false
 var move_vec := Vector2.ZERO
 var look_active := false
 
@@ -28,6 +31,9 @@ var _new_best := false
 
 var _move_idx := -1
 var _look_idx := -1
+var _slide_idx := -1
+var _slide_ready := true
+var _slide_cd := 0.0
 var _move_origin := Vector2.ZERO
 var _look_origin := Vector2.ZERO
 var _move_knob := Vector2.ZERO
@@ -79,7 +85,15 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		if event.pressed:
 			if mode != "play":
-				tapped.emit()
+				if _view_rect(size.x, size.y).has_point(event.position):
+					view_toggled.emit()
+				else:
+					tapped.emit()
+				return
+			if _slide_rect().has_point(event.position):
+				if _slide_idx == -1:
+					_slide_idx = event.index
+					slide_pressed.emit()
 				return
 			if _move_idx == -1 and event.position.x < size.x * 0.5:
 				_move_idx = event.index
@@ -92,6 +106,8 @@ func _input(event: InputEvent) -> void:
 				_look_knob = event.position
 				look_active = true
 		else:
+			if event.index == _slide_idx:
+				_slide_idx = -1
 			if event.index == _move_idx:
 				_move_idx = -1
 				move_vec = Vector2.ZERO
@@ -128,9 +144,15 @@ func set_mode(m: String) -> void:
 	if m != "play":
 		_move_idx = -1
 		_look_idx = -1
+		_slide_idx = -1
 		move_vec = Vector2.ZERO
 		look_active = false
 		_look_delta = Vector2.ZERO
+
+
+func set_slide(ready: bool, cooldown: float) -> void:
+	_slide_ready = ready
+	_slide_cd = clampf(cooldown, 0.0, 1.0)
 
 
 func set_stats(hp: float, hp_max: float, wave: int, left: int, score: int, kills: int) -> void:
@@ -186,6 +208,7 @@ func _draw() -> void:
 
 	if mode == "play":
 		_draw_sticks(w, h)
+		_draw_slide_button(w, h)
 		_draw_crosshair(Vector2(w * 0.5, h * 0.5))
 
 	if _banner_t > 0.0 and _banner_text != "":
@@ -287,26 +310,83 @@ func _draw_title(w: float, h: float) -> void:
 	if _best > 0:
 		_text("BEST %d      BEST WAVE %d" % [_best, _best_wave], Vector2(0.0, h * 0.955), 26, Color(0.55, 0.85, 0.95), HORIZONTAL_ALIGNMENT_CENTER, w)
 
+	_draw_view_pill(w, h)
+
 
 func _draw_over(w: float, h: float) -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.07, 0.58))
-	var cw := minf(900.0, w - 140.0)
-	var ch := 620.0
-	var rect := Rect2((w - cw) * 0.5, (h - ch) * 0.5, cw, ch)
+	var rect := _card_rect(w, h)
 	draw_style_box(_style_big, rect)
 
 	var top := rect.position.y
-	_text("ELIMINATED", Vector2(0.0, top + 152.0), 96, WARN, HORIZONTAL_ALIGNMENT_CENTER, w)
-	_text("SCORE  %d" % _score, Vector2(0.0, top + 268.0), 72, TEXT, HORIZONTAL_ALIGNMENT_CENTER, w)
-	_text("WAVE %d      KILLS %d" % [_wave, _kills], Vector2(0.0, top + 336.0), 34, MUTED, HORIZONTAL_ALIGNMENT_CENTER, w)
+	_text("ELIMINATED", Vector2(0.0, top + 150.0), 96, WARN, HORIZONTAL_ALIGNMENT_CENTER, w)
+	_text("SCORE  %d" % _score, Vector2(0.0, top + 262.0), 72, TEXT, HORIZONTAL_ALIGNMENT_CENTER, w)
+	_text("WAVE %d      KILLS %d" % [_wave, _kills], Vector2(0.0, top + 330.0), 34, MUTED, HORIZONTAL_ALIGNMENT_CENTER, w)
 
 	if _new_best:
-		_text("NEW BEST!", Vector2(0.0, top + 404.0), 40, ACCENT, HORIZONTAL_ALIGNMENT_CENTER, w)
+		_text("NEW BEST!", Vector2(0.0, top + 396.0), 40, ACCENT, HORIZONTAL_ALIGNMENT_CENTER, w)
 	elif _best > 0:
-		_text("BEST  %d" % _best, Vector2(0.0, top + 404.0), 34, MUTED, HORIZONTAL_ALIGNMENT_CENTER, w)
+		_text("BEST  %d" % _best, Vector2(0.0, top + 396.0), 34, MUTED, HORIZONTAL_ALIGNMENT_CENTER, w)
 
 	var pulse := 0.80 + 0.20 * sin(_t * 3.0)
-	_text("TAP TO RETRY", Vector2(0.0, top + 528.0), 50, Color(1.0, 1.0, 1.0, pulse), HORIZONTAL_ALIGNMENT_CENTER, w)
+	_text("TAP TO RETRY", Vector2(0.0, top + 505.0), 50, Color(1.0, 1.0, 1.0, pulse), HORIZONTAL_ALIGNMENT_CENTER, w)
+
+	_draw_view_pill(w, h)
+
+
+# ------------------------------------------------------------------ menus & buttons
+
+func _card_rect(w: float, h: float) -> Rect2:
+	var cw := minf(900.0, w - 140.0)
+	var ch := 660.0
+	return Rect2((w - cw) * 0.5, (h - ch) * 0.5, cw, ch)
+
+
+## Tap target for the view-mode toggle: top-right on the title, bottom of the
+## game-over card otherwise.
+func _view_rect(w: float, h: float) -> Rect2:
+	if mode == "title":
+		return Rect2(w - 392.0, 40.0, 352.0, 66.0)
+	var card := _card_rect(w, h)
+	return Rect2(card.position.x + (card.size.x - 352.0) * 0.5, card.position.y + 560.0, 352.0, 60.0)
+
+
+func _draw_view_pill(w: float, h: float) -> void:
+	var rect := _view_rect(w, h)
+	draw_style_box(_style_small, rect)
+
+	var label := "VIEW   FIRST PERSON" if first_person else "VIEW   THIRD PERSON"
+	var col := ACCENT if first_person else Color(1.0, 1.0, 1.0, 0.88)
+	_text(label, Vector2(rect.position.x, rect.position.y + rect.size.y * 0.5 + 8.0), 24, col,
+		HORIZONTAL_ALIGNMENT_CENTER, rect.size.x)
+
+
+func _slide_center(w: float, h: float) -> Vector2:
+	return Vector2(w - 152.0, h - 376.0)
+
+
+func _slide_rect() -> Rect2:
+	var c := _slide_center(size.x, size.y)
+	return Rect2(c - Vector2(74.0, 74.0), Vector2(148.0, 148.0))
+
+
+func _draw_slide_button(w: float, h: float) -> void:
+	var c := _slide_center(w, h)
+	var r := 62.0
+	var ready := _slide_ready
+
+	var fill := Color(1.0, 0.70, 0.32, 0.18) if ready else Color(1.0, 1.0, 1.0, 0.05)
+	var line := Color(1.0, 0.78, 0.42, 0.62) if ready else Color(1.0, 1.0, 1.0, 0.16)
+	draw_circle(c, r, fill)
+	draw_arc(c, r, 0.0, TAU, 44, line, 3.0, true)
+
+	if _slide_cd > 0.01:
+		draw_circle(c, r - 3.0, Color(0.02, 0.03, 0.06, 0.50 * _slide_cd))
+		draw_arc(c, r - 7.0, -PI * 0.5, -PI * 0.5 + TAU * (1.0 - _slide_cd), 36,
+			Color(1.0, 0.78, 0.42, 0.85), 5.0, true)
+
+	var txt_col := Color(1.0, 0.91, 0.72, 0.95) if ready else Color(1.0, 1.0, 1.0, 0.32)
+	_text("SLIDE", Vector2(c.x - r, c.y + 9.0), 22, txt_col, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0)
 
 
 # ------------------------------------------------------------------ primitives

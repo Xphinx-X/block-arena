@@ -1,7 +1,7 @@
 extends CharacterBody3D
 
 ## The player: blocky avatar, camera-relative movement, hitscan gun with
-## gentle auto-aim.
+## gentle auto-aim, and a short forward slide.
 
 const FigureScript := preload("res://scripts/figure.gd")
 
@@ -18,9 +18,14 @@ const AUTO_AIM_RANGE := 46.0
 const AUTO_AIM_DOT := 0.930
 const BOT_LAYER_MASK := 5
 
+const SLIDE_TIME := 0.36
+const SLIDE_COOLDOWN := 1.5
+const SLIDE_SPEED := 2.45
+
 var game
 var health := MAX_HEALTH
 var alive := true
+var first_person := false
 
 ## World-space direction (length 0..1) requested by the HUD.
 var move_dir := Vector3.ZERO
@@ -28,12 +33,17 @@ var move_dir := Vector3.ZERO
 var aim_dir := Vector3.FORWARD
 var shooting := false
 
+var sliding := false
+
 var figure: Node3D
 var muzzle: Node3D
 
 var _fire_cd := 0.0
 var _walk_phase := 0.0
 var _face_yaw := 0.0
+var _slide_t := 0.0
+var _slide_cd := 0.0
+var _slide_dir := Vector3.FORWARD
 
 
 func _ready() -> void:
@@ -55,21 +65,36 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if alive:
-		var target := move_dir * SPEED
-		velocity.x = move_toward(velocity.x, target.x, ACCEL * delta)
-		velocity.z = move_toward(velocity.z, target.z, ACCEL * delta)
-		if is_on_floor():
-			velocity.y = -0.5
+	if not alive:
+		return
+
+	_slide_cd = maxf(0.0, _slide_cd - delta)
+
+	if sliding:
+		_slide_t -= delta
+		if _slide_t <= 0.0:
+			_end_slide()
 		else:
-			velocity.y -= GRAVITY * delta
-		move_and_slide()
+			_slide_step(delta)
+			_fire_cd -= delta
+			if shooting and _fire_cd <= 0.0:
+				_fire()
+			return
 
-		_update_animation(delta)
+	var target := move_dir * SPEED
+	velocity.x = move_toward(velocity.x, target.x, ACCEL * delta)
+	velocity.z = move_toward(velocity.z, target.z, ACCEL * delta)
+	if is_on_floor():
+		velocity.y = -0.5
+	else:
+		velocity.y -= GRAVITY * delta
+	move_and_slide()
 
-		_fire_cd -= delta
-		if shooting and _fire_cd <= 0.0:
-			_fire()
+	_update_animation(delta)
+
+	_fire_cd -= delta
+	if shooting and _fire_cd <= 0.0:
+		_fire()
 
 
 func _update_animation(delta: float) -> void:
@@ -80,16 +105,95 @@ func _update_animation(delta: float) -> void:
 	else:
 		figure.set_walk(0.0, 0.0)
 
-	var face: Vector3 = aim_dir if shooting else move_dir
+	var face: Vector3 = aim_dir if (shooting or first_person) else move_dir
 	if face.length() > 0.05:
 		var yaw := atan2(-face.x, -face.z)
 		_face_yaw = lerp_angle(_face_yaw, yaw, 1.0 - exp(-16.0 * delta))
 	figure.rotation.y = _face_yaw
 
 
+# ------------------------------------------------------------------ slide
+
+## Starts a short dash. Returns false when dead, already sliding, on cooldown
+## or in the air.
+func start_slide() -> bool:
+	if not alive or sliding or _slide_cd > 0.0 or not is_on_floor():
+		return false
+
+	var dir := move_dir
+	if dir.length() < 0.1:
+		dir = Vector3(-sin(_face_yaw), 0.0, -cos(_face_yaw))
+	_slide_dir = dir.normalized()
+	_slide_dir.y = 0.0
+	if _slide_dir.length() < 0.01:
+		_slide_dir = Vector3.FORWARD
+
+	sliding = true
+	_slide_t = SLIDE_TIME
+	_slide_cd = SLIDE_COOLDOWN
+	if game != null:
+		game.on_player_slide()
+	return true
+
+
+func _slide_step(_delta: float) -> void:
+	var k := 1.0 - clampf(_slide_t / SLIDE_TIME, 0.0, 1.0)
+	var spd := SPEED * (SLIDE_SPEED - 1.15 * k)
+	velocity.x = _slide_dir.x * spd
+	velocity.z = _slide_dir.z * spd
+	if is_on_floor():
+		velocity.y = -0.5
+	else:
+		velocity.y -= GRAVITY * _delta
+	move_and_slide()
+
+	var lean := sin(k * PI)
+	figure.position.y = -0.55 * lean
+	figure.rotation.x = -0.22 * lean
+	figure.rotation.y = atan2(-_slide_dir.x, -_slide_dir.z)
+	_face_yaw = figure.rotation.y
+	figure.set_slide(lean)
+
+
+func _end_slide() -> void:
+	sliding = false
+	figure.position.y = 0.0
+	figure.rotation.x = 0.0
+	figure.set_slide(0.0)
+
+
+func slide_ready() -> bool:
+	return _slide_cd <= 0.0 and alive and not sliding
+
+
+func slide_cooldown_ratio() -> float:
+	return clampf(_slide_cd / SLIDE_COOLDOWN, 0.0, 1.0)
+
+
+## 0 at rest, 1 mid-slide - used to dip the camera.
+func slide_amount() -> float:
+	if not sliding:
+		return 0.0
+	return sin(clampf(1.0 - _slide_t / SLIDE_TIME, 0.0, 1.0) * PI)
+
+
+func set_first_person(enabled: bool) -> void:
+	first_person = enabled
+	if figure != null:
+		figure.visible = not enabled
+
+
+# ------------------------------------------------------------------ combat
+
+func _muzzle_pos() -> Vector3:
+	if first_person and game != null and game.cam.view_muzzle != null:
+		return game.cam.view_muzzle.global_position
+	return muzzle.global_position
+
+
 func _fire() -> void:
 	_fire_cd = FIRE_INTERVAL
-	var from: Vector3 = muzzle.global_position
+	var from := _muzzle_pos()
 	var dir := _aim_dir(from)
 	var to := from + dir * RANGE
 
@@ -106,8 +210,10 @@ func _fire() -> void:
 			collider.take_damage(1.0, dir)
 			struck = true
 
-	game.fx.tracer(from, end, Color(1.0, 0.94, 0.55), 0.07, 0.06)
-	game.fx.muzzle(from, Color(1.0, 0.85, 0.45), 0.26)
+	var tracer_w := 0.045 if first_person else 0.07
+	var flash := 0.11 if first_person else 0.26
+	game.fx.tracer(from, end, Color(1.0, 0.94, 0.55), tracer_w, 0.06)
+	game.fx.muzzle(from, Color(1.0, 0.85, 0.45), flash)
 	game.sfx.play("shot", randf_range(0.94, 1.06))
 	if struck:
 		game.on_player_hit(end)
@@ -172,6 +278,7 @@ func take_damage(amount: float) -> void:
 
 func _die() -> void:
 	alive = false
+	sliding = false
 	shooting = false
 	move_dir = Vector3.ZERO
 	velocity = Vector3.ZERO
@@ -195,12 +302,17 @@ func reset_for_run(spawn_pos: Vector3) -> void:
 	alive = true
 	health = MAX_HEALTH
 	shooting = false
+	sliding = false
 	move_dir = Vector3.ZERO
 	velocity = Vector3.ZERO
 	collision_layer = 2
 	_fire_cd = 0.0
+	_slide_t = 0.0
+	_slide_cd = 0.0
 	global_position = spawn_pos
 	figure.rotation = Vector3.ZERO
 	figure.position = Vector3.ZERO
 	figure.scale = Vector3.ONE
+	figure.set_slide(0.0)
+	figure.visible = not first_person
 	health_changed.emit(health, MAX_HEALTH)

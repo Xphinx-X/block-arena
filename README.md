@@ -1,8 +1,8 @@
 # Block Arena
 
-A blocky third-person wave shooter for Android, built with Godot 4.7.
-No imported art, models or audio: every character, prop, texture and sound is
-generated in code.
+A blocky wave shooter for Android, built with Godot 4.7. Play it in third person
+or flip to first person from the menu. No imported art, models or audio: every
+character, prop, texture and sound is generated in code.
 
 ![Block Arena gameplay](docs/gameplay.png)
 
@@ -19,11 +19,21 @@ builds install straight over older ones.
 | --- | --- |
 | Left thumb (left half of the screen) | Move |
 | Right thumb, drag | Aim the camera **and** fire |
+| **SLIDE** button (above the aim stick) | Short forward dash, 1.5 s cooldown |
+| **VIEW** pill (title screen / game-over card) | Switch third person ↔ first person |
 | Tap | Start / retry |
+| Shift (desktop) | Slide |
 
 The crosshair in the middle of the screen is where the bullets go. Shots get a
 small auto-aim nudge toward the closest bot inside the cone, so you don't need
 pixel-perfect aim on a phone.
+
+The view choice is saved on the device, and can be changed from the title
+screen or the game-over card. First person adds a blocky view-model gun and
+widens the look-up/down range; third person keeps the spring-arm camera.
+
+The slide is a 0.36 s dash at ~2.4× speed. Use it to break away from a crowd or
+dodge a volley; the button dims and refills while it recharges.
 
 ## The game
 
@@ -32,8 +42,11 @@ pixel-perfect aim on a phone.
   hitscan shots when they have line of sight.
 - **Cover matters.** Crates, pillars and a low centre wall block movement and
   bullets alike.
+- **Two views.** Third-person spring-arm camera or a first-person view with a
+  procedural weapon model; both share the same aim and auto-aim.
+- **Slide.** A quick dash with a cooldown ring on the button.
 - **Rewards.** Kills score points, clearing a wave pays a bonus and heals 25 HP.
-- **Progress.** Best score and best wave are saved on the device.
+- **Progress.** Best score, best wave and view preference are saved on the device.
 
 ![Title screen](docs/title.png)
 
@@ -42,12 +55,12 @@ pixel-perfect aim on a phone.
 ```
 main.tscn                  entry scene (one node, script does the rest)
 scripts/game.gd            state machine, waves, score, saves, tuning constants
-scripts/player.gd          movement, hitscan gun, crosshair convergence, auto-aim
+scripts/player.gd          movement, hitscan gun, crosshair convergence, auto-aim, slide
 scripts/bot.gd             chase/strafe AI, line-of-sight shooting
-scripts/figure.gd          blocky humanoid built from BoxMeshes, swinging limbs
+scripts/figure.gd          blocky humanoid built from BoxMeshes, swinging limbs, slide pose
 scripts/arena.gd           floor, walls, cover, spawn pad
-scripts/camera_rig.gd      spring-arm third-person camera
-scripts/hud.gd             all UI drawn procedurally (bars, sticks, cards)
+scripts/camera_rig.gd      spring-arm third-person camera + first-person view model
+scripts/hud.gd             all UI drawn procedurally (bars, sticks, buttons, cards)
 scripts/fx.gd              tracers, muzzle flashes, sparks, death bursts
 scripts/sfx.gd             synthesised sound effects
 tests/smoke.tscn|gd        headless integration tests
@@ -87,6 +100,10 @@ python3 tools/make_icons.py
 | Title | Game over |
 | --- | --- |
 | ![Title](docs/title.png) | ![Game over](docs/gameover.png) |
+
+| First person | Slide |
+| --- | --- |
+| ![First person](docs/first-person.png) | ![Slide](docs/slide.png) |
 
 ## License
 

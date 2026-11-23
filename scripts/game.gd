@@ -25,6 +25,7 @@ var score := 0
 var kills := 0
 var best := 0
 var best_wave := 0
+var first_person := false
 
 var player
 var arena
@@ -73,6 +74,8 @@ func _ready() -> void:
 	hud.name = "Hud"
 	add_child(hud)
 	hud.tapped.connect(_on_tap)
+	hud.view_toggled.connect(toggle_view)
+	hud.slide_pressed.connect(_on_slide_pressed)
 
 	_load_best()
 	hud.set_best(best, best_wave)
@@ -84,11 +87,13 @@ func _process(delta: float) -> void:
 	_tick_input(delta)
 	_tick_waves(delta)
 
+	cam.crouch = player.slide_amount()
 	cam.follow(player.global_position, delta)
 	if state == State.READY:
 		cam.orbit(delta * 0.16)
 
 	hud.set_stats(player.health, player.max_hp(), maxi(wave, 1), _spawn_left + alive_count(), score, kills)
+	hud.set_slide(player.slide_ready(), player.slide_cooldown_ratio())
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -96,6 +101,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_SPACE or event.keycode == KEY_ENTER:
 			if state != State.PLAYING and state != State.WAVE_CLEAR:
 				_on_tap()
+		elif event.keycode == KEY_SHIFT:
+			if state == State.PLAYING or state == State.WAVE_CLEAR:
+				player.start_slide()
 
 
 # ------------------------------------------------------------------ loop
@@ -223,6 +231,31 @@ func alive_count() -> int:
 	return n
 
 
+# ------------------------------------------------------------------ view & slide
+
+func toggle_view() -> void:
+	first_person = not first_person
+	_apply_view_mode()
+	_save_best()
+	sfx.play("start", 1.25)
+
+
+func _apply_view_mode() -> void:
+	cam.set_first_person(first_person)
+	player.set_first_person(first_person)
+	hud.first_person = first_person
+
+
+func _on_slide_pressed() -> void:
+	if state == State.PLAYING or state == State.WAVE_CLEAR:
+		player.start_slide()
+
+
+func on_player_slide() -> void:
+	sfx.play("slide", randf_range(0.95, 1.05))
+	cam.add_shake(0.22)
+
+
 # ------------------------------------------------------------------ run control
 
 func _on_tap() -> void:
@@ -235,6 +268,7 @@ func _on_tap() -> void:
 
 func start_run() -> void:
 	_clear_bots()
+	_apply_view_mode()
 	player.reset_for_run(PLAYER_SPAWN)
 	cam.snap_to(player.global_position)
 	cam.reset_view(0.0)
@@ -346,10 +380,13 @@ func _load_best() -> void:
 	if cfg.load(SAVE_PATH) == OK:
 		best = int(cfg.get_value("score", "best", 0))
 		best_wave = int(cfg.get_value("score", "best_wave", 0))
+		first_person = bool(cfg.get_value("settings", "first_person", false))
+	_apply_view_mode()
 
 
 func _save_best() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("score", "best", best)
 	cfg.set_value("score", "best_wave", best_wave)
+	cfg.set_value("settings", "first_person", first_person)
 	cfg.save(SAVE_PATH)

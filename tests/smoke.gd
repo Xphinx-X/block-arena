@@ -57,6 +57,30 @@ func _run() -> void:
 	_check(game.player.health == 100.0, "player starts at full hp")
 	_check(game.player.max_hp() == 100.0, "max hp is 100")
 
+	print("-- view modes")
+	_check(not game.cam.first_person, "starts in third person")
+	game.toggle_view()
+	await _frames(2)
+	_check(game.cam.first_person, "toggle enables first person")
+	_check(game.player.first_person and not game.player.figure.visible, "body is hidden in first person")
+	_check(game.hud.first_person, "hud knows the view mode")
+	_check(is_equal_approx(game.cam.global_position.y, game.player.global_position.y + game.cam.eye_height),
+		"first-person camera sits at eye height")
+	game.toggle_view()
+	await _frames(2)
+	_check(not game.cam.first_person and game.player.figure.visible, "toggle returns to third person")
+
+	var pill := InputEventScreenTouch.new()
+	pill.index = 4
+	pill.position = game.hud._view_rect(game.hud.size.x, game.hud.size.y).get_center()
+	pill.pressed = true
+	game.hud._input(pill)
+	await _frames(1)
+	_check(game.cam.first_person, "tapping the menu pill switches view")
+	_check(game.state == STATE_READY, "the view pill does not start the run")
+	game.toggle_view()
+	await _frames(1)
+
 	print("-- run")
 	game.start_run()
 	await _frames(3)
@@ -133,6 +157,22 @@ func _run() -> void:
 	_check(game.score == 0 and game.kills == 0, "restart resets the score")
 	_check(game.alive_count() == 0, "restart clears the arena")
 
+	print("-- slide")
+	for b in game.bots:
+		if is_instance_valid(b):
+			b.set_physics_process(false)
+	await _frames(12)
+	_check(game.player.slide_ready(), "slide is ready after landing")
+	var p0: Vector3 = game.player.global_position
+	_check(game.player.start_slide(), "slide starts when ready")
+	_check(game.player.sliding, "player is sliding")
+	_check(game.player.slide_cooldown_ratio() > 0.0, "slide goes on cooldown")
+	_check(not game.player.start_slide(), "cannot slide twice during cooldown")
+	await _frames(45)
+	_check(not game.player.sliding, "slide ends on its own")
+	_check(game.player.global_position.distance_to(p0) > 1.5, "slide covers ground")
+	_check(game.player.figure.rotation.x == 0.0, "body stands back up after the slide")
+
 	print("-- touch handling")
 	var touch := InputEventScreenTouch.new()
 	touch.index = 0
@@ -166,3 +206,23 @@ func _run() -> void:
 	game.hud._input(drag)
 	_check(game.hud.move_vec.length() > 0.5, "left-side drag drives movement")
 	_check(game.hud.move_vec.y > 0.5, "dragging up moves forward")
+
+	print("-- slide button")
+	game.player.health = 100.0
+	await get_tree().create_timer(1.6).timeout
+	_check(game.player.slide_ready(), "slide cooldown expires")
+
+	var slide_touch := InputEventScreenTouch.new()
+	slide_touch.index = 6
+	slide_touch.position = game.hud._slide_center(game.hud.size.x, game.hud.size.y)
+	slide_touch.pressed = true
+	game.hud._input(slide_touch)
+	await _frames(1)
+	_check(not game.hud.look_active, "the slide button does not start the aim stick")
+	_check(game.player.sliding, "the slide button triggers a slide")
+
+	var slide_up := InputEventScreenTouch.new()
+	slide_up.index = 6
+	slide_up.position = slide_touch.position
+	slide_up.pressed = false
+	game.hud._input(slide_up)

@@ -86,6 +86,15 @@ func set_walk(phase: float, amount: float) -> void:
 	_arm_r.rotation.x = 1.25 + swing * 0.12
 
 
+## Slide pose: legs thrown forward, arms trailing. amount is 0..1.
+func set_slide(amount: float) -> void:
+	var k := clampf(amount, 0.0, 1.0)
+	_leg_l.rotation.x = 1.30 * k
+	_leg_r.rotation.x = 1.05 * k
+	_arm_l.rotation.x = -0.55 * k
+	_arm_r.rotation.x = 1.25 + 0.35 * k
+
+
 ## Brief white/hurt flash on every part.
 func flash(color: Color = Color(1.0, 1.0, 1.0), time: float = 0.07) -> void:
 	for m in _mats:
